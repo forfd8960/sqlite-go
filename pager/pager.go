@@ -76,8 +76,8 @@ type PgHdr struct {
 }
 
 type PageRecord struct {
-	pgNum  uint            // the page number
-	pgData [N_PG_HASH]byte // original data for page num
+	pgNum  uint                   // the page number
+	pgData [SQLITE_PAGE_SIZE]byte // original data for page num
 }
 
 type PagerI interface {
