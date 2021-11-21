@@ -63,3 +63,34 @@ func OpenExclusive(file string, del bool) (lockFile *LockFile, code codes.SQLite
 
 	return &LockFile{fd: fd}, codes.SQLiteOk
 }
+
+func (lf *LockFile) Read(buf []byte, amt int) codes.SQLiteCode {
+	n, err := syscall.Read(lf.fd, buf)
+	if err != nil {
+		return codes.SQLiteIOErr
+	}
+
+	if n != amt {
+		return codes.SQLiteIOErr
+	}
+
+	return codes.SQLiteOk
+}
+
+func (lf *LockFile) Write(data []byte) codes.SQLiteCode {
+	wn, err := syscall.Write(lf.fd, data)
+	if err != nil || wn < len(data) {
+		return codes.SQLiteFull
+	}
+
+	return codes.SQLiteOk
+}
+
+func (lf *LockFile) Close() codes.SQLiteCode {
+	err := syscall.Close(lf.fd)
+	if err != nil {
+		return codes.SQLiteIOErr
+	}
+
+	return codes.SQLiteOk
+}
