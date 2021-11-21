@@ -3,7 +3,6 @@ package os
 import (
 	"errors"
 	stdos "os"
-	"sync"
 	"syscall"
 
 	"github.com/forfd8960/sqlite-go/codes"
@@ -45,16 +44,6 @@ func OpenReadWrite(file string) (lockFile *LockFile, readOnly bool, errCode *cod
 		readOnly = false
 	}
 
-	var mu sync.Mutex
-	mu.Lock()
-	defer mu.Unlock()
-
-	err = syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB)
-	if err != nil {
-		syscall.Close(fd)
-		return nil, false, codes.NewCode(codes.SQLiteNoMem, err.Error())
-	}
-
 	return &LockFile{fd: fd}, readOnly, codes.Ok()
 }
 
@@ -66,16 +55,6 @@ func OpenExclusive(file string, del bool) (lockFile *LockFile, code codes.SQLite
 	fd, err := syscall.Open(file, syscall.O_RDWR|syscall.O_CREAT|syscall.O_EXCL|syscall.O_NOFOLLOW, 0600)
 	if err != nil {
 		return nil, codes.SQLiteCanTOpen
-	}
-
-	var mu sync.Mutex
-	mu.Lock()
-	defer mu.Unlock()
-	err = syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB)
-	if err != nil {
-		syscall.Close(fd)
-		syscall.Unlink(file)
-		return nil, codes.SQLiteNoMem
 	}
 
 	if del {

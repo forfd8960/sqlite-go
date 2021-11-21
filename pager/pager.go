@@ -1,6 +1,8 @@
 package pager
 
-import "os"
+import (
+	"github.com/forfd8960/sqlite-go/os"
+)
 
 const (
 	SQLITE_PAGE_SIZE = 1024
@@ -34,9 +36,9 @@ var (
 type Pager struct {
 	dbFile              string
 	journal             string
-	dbfd                *os.File
-	jfd                 *os.File
-	ckptFd              *os.File
+	dbfd                *os.LockFile
+	jfd                 *os.LockFile
+	ckptFd              *os.LockFile
 	dbSize, origDBSize  int64
 	ckptSize, ckptJSize int64
 	nExtra              int64
