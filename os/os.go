@@ -2,6 +2,7 @@ package os
 
 import (
 	"errors"
+	"io"
 	stdos "os"
 	"syscall"
 
@@ -84,6 +85,43 @@ func (lf *LockFile) Write(data []byte) codes.SQLiteCode {
 	}
 
 	return codes.SQLiteOk
+}
+
+func (lf *LockFile) Seek(offset int64) codes.SQLiteCode {
+	_, err := syscall.Seek(lf.fd, offset, io.SeekStart)
+	if err != nil {
+		return codes.SQLiteIOErr
+	}
+
+	return codes.SQLiteOk
+}
+
+// Sync make sure all writea to a particular file are commited to disk
+func (lf *LockFile) Sync() codes.SQLiteCode {
+	if err := syscall.Fsync(lf.fd); err != nil {
+		return codes.SQLiteIOErr
+	}
+
+	return codes.SQLiteOk
+}
+
+// Truncate an poen file to a specified size
+func (lf *LockFile) Truncate(nByte int64) codes.SQLiteCode {
+	if err := syscall.Ftruncate(lf.fd, nByte); err != nil {
+		return codes.SQLiteIOErr
+	}
+
+	return codes.SQLiteOk
+}
+
+// Size file size in bytes
+func (lf *LockFile) Size() (size int64, code codes.SQLiteCode) {
+	stat := &syscall.Stat_t{}
+	if err := syscall.Fstat(lf.fd, stat); err != nil {
+		return -1, codes.SQLiteIOErr
+	}
+
+	return stat.Size, codes.SQLiteOk
 }
 
 func (lf *LockFile) Close() codes.SQLiteCode {
