@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	stdos "os"
+	"sync"
 	"syscall"
 
 	"github.com/forfd8960/sqlite-go/codes"
@@ -11,6 +12,9 @@ import (
 
 type LockFile struct {
 	fd int
+
+	mu     sync.Mutex
+	locked bool
 }
 
 func DeleteFile(file string) error {
@@ -130,5 +134,63 @@ func (lf *LockFile) Close() codes.SQLiteCode {
 		return codes.SQLiteIOErr
 	}
 
+	return codes.SQLiteOk
+}
+
+func (lf *LockFile) ReadLock() codes.SQLiteCode {
+	lf.mu.Lock()
+	defer lf.mu.Unlock()
+
+	// locking in shared and non-blocking
+	if err := syscall.FcntlFlock(uintptr(lf.fd), syscall.F_SETLK, &syscall.Flock_t{
+		Type:   syscall.F_RDLCK,
+		Whence: io.SeekStart,
+		Start:  0,
+		Len:    0,
+	}); err != nil {
+		return codes.SQLiteBusy
+	}
+
+	lf.locked = true
+	return codes.SQLiteOk
+}
+
+func (lf *LockFile) WriteLock() codes.SQLiteCode {
+	lf.mu.Lock()
+	defer lf.mu.Unlock()
+
+	if err := syscall.FcntlFlock(uintptr(lf.fd), syscall.F_SETLK, &syscall.Flock_t{
+		Type:   syscall.F_WRLCK,
+		Whence: int16(io.SeekStart),
+		Start:  0,
+		Len:    0,
+	}); err != nil {
+		return codes.SQLiteBusy
+	}
+
+	lf.locked = true
+	return codes.SQLiteOk
+}
+
+func (lf *LockFile) UnLock() codes.SQLiteCode {
+	lf.mu.Lock()
+	defer lf.mu.Unlock()
+	locked := lf.locked
+
+	if !locked {
+		return codes.SQLiteOk
+	}
+
+	flock := &syscall.Flock_t{
+		Type:   syscall.F_UNLCK,
+		Whence: io.SeekStart,
+		Start:  0,
+		Len:    0,
+	}
+	if err := syscall.FcntlFlock(uintptr(lf.fd), syscall.F_SETLK, flock); err != nil {
+		return codes.SQLiteBusy
+	}
+
+	lf.locked = false
 	return codes.SQLiteOk
 }
