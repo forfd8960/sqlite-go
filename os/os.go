@@ -35,13 +35,13 @@ func FileExists(file string) bool {
 	return false
 }
 
-func OpenReadWrite(file string) (lockFile *LockFile, readOnly bool, errCode *codes.ErrCode) {
+func OpenReadWrite(file string) (lockFile *LockFile, readOnly bool, errCode codes.SQLiteCode) {
 	fd, err := syscall.Open(file, syscall.O_RDWR|syscall.O_CREAT, 0644)
 	if err != nil {
 		// if open read & write fails, open it read-only
 		fd, err = syscall.Open(file, syscall.O_RDONLY, 0644)
 		if err != nil {
-			return nil, false, codes.NewCode(codes.SQLiteCanTOpen, err.Error())
+			return nil, false, codes.SQLiteCanTOpen
 		}
 
 		readOnly = true
@@ -49,7 +49,7 @@ func OpenReadWrite(file string) (lockFile *LockFile, readOnly bool, errCode *cod
 		readOnly = false
 	}
 
-	return &LockFile{fd: fd}, readOnly, codes.Ok()
+	return &LockFile{fd: fd}, readOnly, codes.SQLiteOk
 }
 
 func OpenExclusive(file string, del bool) (lockFile *LockFile, code codes.SQLiteCode) {

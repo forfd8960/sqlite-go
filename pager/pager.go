@@ -1,6 +1,7 @@
 package pager
 
 import (
+	"github.com/forfd8960/sqlite-go/codes"
 	"github.com/forfd8960/sqlite-go/os"
 )
 
@@ -83,5 +84,31 @@ type PageRecord struct {
 }
 
 type PagerI interface {
-	Open(dbFile string, maxPage, nExtra uint64) *Pager
+}
+
+func NewPager(db string, maxPage int64, nExtra int64) (*Pager, codes.SQLiteCode) {
+	pager := &Pager{}
+
+	var rc codes.SQLiteCode
+	if db != "" {
+		pager.dbfd, pager.readOnly, rc = os.OpenReadWrite(db)
+	} else {
+		//todo: open temp file
+	}
+
+	if rc != codes.SQLiteOk {
+		return nil, codes.SQLiteCanTOpen
+	}
+
+	pager.dbFile = db
+	pager.journal = db + "-journal"
+	pager.dbSize = -1
+	pager.maxPage = 10
+	if maxPage > 5 {
+		pager.maxPage = maxPage
+	}
+	pager.state = SQLITE_UNLOCK
+	pager.nExtra = nExtra
+	pager.pageHash = make(map[uint64]*PgHdr, pager.maxPage)
+	return pager, codes.SQLiteOk
 }
