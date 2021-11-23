@@ -26,7 +26,7 @@ const (
 	ErrPagerMEM     PagerErrCode = 0x02 // mem error
 	ErrPagerLock    PagerErrCode = 0x04 // error in the locking protocol
 	ErrPagerCorrupt PagerErrCode = 0x08 // database or journal corruption
-	ErrPagerDist    PagerErrCode = 0x10 // gerneral dist I/O error
+	ErrPagerDisk    PagerErrCode = 0x10 // gerneral dist I/O error
 )
 
 var (
@@ -111,4 +111,41 @@ func NewPager(db string, maxPage int64, nExtra int64) (*Pager, codes.SQLiteCode)
 	pager.nExtra = nExtra
 	pager.pageHash = make(map[uint64]*PgHdr, pager.maxPage)
 	return pager, codes.SQLiteOk
+}
+
+func (p *Pager) SetDestructor(destructorFn func()) {
+	p.destructorFn = destructorFn
+}
+
+func (p *Pager) PageCount() int64 {
+	if p.dbSize >= 0 {
+		return p.dbSize
+	}
+
+	size, rc := p.dbfd.Size()
+	if rc != codes.SQLiteOk {
+		p.errMask |= int(ErrPagerDisk)
+		return -1
+	}
+
+	pageCount := size / SQLITE_PAGE_SIZE
+	if p.state != SQLITE_UNLOCK {
+		p.dbSize = pageCount
+	}
+
+	return pageCount
+}
+
+func (p *Pager) Close() codes.SQLiteCode {
+	switch p.state {
+	case SQLITE_WRITELOCK:
+		//todo: add call of pager_rollback
+	case SQLITE_READLOCK:
+		p.dbfd.UnLock()
+	default:
+	}
+
+	p.all = nil
+	p.dbfd.Close()
+	return codes.SQLiteOk
 }
