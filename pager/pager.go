@@ -149,3 +149,31 @@ func (p *Pager) Close() codes.SQLiteCode {
 	p.dbfd.Close()
 	return codes.SQLiteOk
 }
+
+func (pgHdr *PgHdr) PageNumber() uint {
+	return pgHdr.pgNum
+}
+
+// PageRef Increase the ref count for a page
+func (pgHdr *PgHdr) PageRef() {
+	pageRef(pgHdr)
+}
+
+func pageRef(pgHdr *PgHdr) {
+	if pgHdr.nRef == 0 { // if this page has zero ref count, remove it from free list
+		if pgHdr.prevFree != nil {
+			pgHdr.prevFree.nextFree = pgHdr.nextFree
+		} else {
+			pgHdr.pager.first = pgHdr.nextFree
+		}
+
+		if pgHdr.nextFree != nil {
+			pgHdr.nextFree.prevFree = pgHdr.prevFree
+		} else {
+			pgHdr.pager.last = pgHdr.prevFree
+		}
+
+		pgHdr.pager.nRef++
+	}
+	pgHdr.nRef++
+}
