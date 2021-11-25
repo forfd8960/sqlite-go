@@ -8,7 +8,7 @@ import (
 const (
 	SQLITE_PAGE_SIZE = 1024
 	SQLITE_MAX_PAGE  = 1073741823
-	N_PG_HASH        = 2003
+	N_PG_HASH        = uint(2003)
 )
 
 type PagerState int
@@ -61,9 +61,9 @@ type Pager struct {
 	aInJournal          *uint8 // one bit for each page in the database
 	aInCkpt             *uint8 // One bit for each page in the database
 
-	first, last *PgHdr            // list of free pages
-	all         *PgHdr            // list of all pages
-	pageHash    map[uint64]*PgHdr // map page number to page
+	first, last *PgHdr          // list of free pages
+	all         *PgHdr          // list of all pages
+	pageHash    map[uint]*PgHdr // map page number to page
 }
 
 type PgHdr struct {
@@ -109,7 +109,7 @@ func NewPager(db string, maxPage int64, nExtra int64) (*Pager, codes.SQLiteCode)
 	}
 	pager.state = SQLITE_UNLOCK
 	pager.nExtra = nExtra
-	pager.pageHash = make(map[uint64]*PgHdr, pager.maxPage)
+	pager.pageHash = make(map[uint]*PgHdr, pager.maxPage)
 	return pager, codes.SQLiteOk
 }
 
@@ -152,6 +152,62 @@ func (p *Pager) Close() codes.SQLiteCode {
 
 func (pgHdr *PgHdr) PageNumber() uint {
 	return pgHdr.pgNum
+}
+
+// GetPage get page bu page num, first check memory buffer, if not exsts, then go to disk
+func (p *Pager) GetPage(pgNum uint) codes.SQLiteCode {
+	if pgNum == 0 {
+		return codes.SQLiteError
+	}
+
+	if p.errMask&^int(ErrPagerFull) > 0 {
+		return errCode(p)
+	}
+
+	var pgHdr *PgHdr
+	// if this is the first page accessed, get a read lock on the DB file
+	if p.nRef == 0 {
+
+	} else {
+		pgHdr = p.LookUp(pgNum)
+	}
+
+	// the request page is not in the page cache
+	if pgHdr == nil {
+
+	} else {
+		// the page is in the case
+		p.nHit++
+		pageRef(pgHdr)
+	}
+
+	return codes.SQLiteOk
+}
+
+func errCode(p *Pager) codes.SQLiteCode {
+	switch {
+	case p.errMask&int(ErrPagerLock) > 0:
+		return codes.SQLiteProtocol
+	case p.errMask&int(ErrPagerDisk) > 0:
+		return codes.SQLiteIOErr
+	case p.errMask&int(ErrPagerFull) > 0:
+		return codes.SQLiteFull
+	case p.errMask&int(ErrPagerMEM) > 0:
+		return codes.SQLiteNoMem
+	case p.errMask&int(ErrPagerCorrupt) > 0:
+		return codes.SQLiteCorrupt
+	}
+
+	return codes.SQLiteOk
+}
+
+func (p *Pager) LookUp(pgNum uint) *PgHdr {
+	pgHdr := p.pageHash[pgNum%N_PG_HASH]
+	for pgHdr != nil && pgHdr.pgNum != pgNum {
+		pgHdr = pgHdr.nextHash
+	}
+
+	return pgHdr
 }
 
 // PageRef Increase the ref count for a page
