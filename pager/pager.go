@@ -43,7 +43,7 @@ type Pager struct {
 	dbSize, origDBSize  int64
 	ckptSize, ckptJSize int64
 	nExtra              int64
-	destructorFn        func()
+	destructorFn        func(pageData PageData)
 	nPage               int64      // total number of in-memory pages
 	nRef                int64      // number of in-memory pages with PgHdr.nRef > 0
 	maxPage             int64      // max number of pages to hold in cache
@@ -86,6 +86,10 @@ type PageRecord struct {
 type PagerI interface {
 }
 
+type PageData interface {
+	PageHeader() *PgHdr
+}
+
 func NewPager(db string, maxPage int64, nExtra int64) (*Pager, codes.SQLiteCode) {
 	pager := &Pager{}
 
@@ -113,7 +117,7 @@ func NewPager(db string, maxPage int64, nExtra int64) (*Pager, codes.SQLiteCode)
 	return pager, codes.SQLiteOk
 }
 
-func (p *Pager) SetDestructor(destructorFn func()) {
+func (p *Pager) SetDestructor(destructorFn func(pageData PageData)) {
 	p.destructorFn = destructorFn
 }
 
@@ -169,7 +173,7 @@ func (p *Pager) GetPage(pgNum uint) codes.SQLiteCode {
 	if p.nRef == 0 {
 
 	} else {
-		pgHdr = p.LookUp(pgNum)
+		pgHdr = lookUpPage(p, pgNum)
 	}
 
 	// the request page is not in the page cache
@@ -182,6 +186,74 @@ func (p *Pager) GetPage(pgNum uint) codes.SQLiteCode {
 	}
 
 	return codes.SQLiteOk
+}
+
+// Lookup acquire a page if it is already in the in-memory cache,
+// Do not read the page from the disk.
+func (p *Pager) LookUp(pageNum uint) *PgHdr {
+	if pageNum == 0 {
+		return nil
+	}
+
+	if p.errMask&^int(ErrPagerFull) > 0 {
+		return nil
+	}
+
+	if p.nRef == 0 {
+		return nil
+	}
+
+	page := lookUpPage(p, pageNum)
+	if page == nil {
+		return nil
+	}
+
+	pageRef(page)
+	return page
+}
+
+func (p *Pager) UnRef(pageData PageData) {
+	pgHdr := pageData.PageHeader()
+	pgHdr.nRef--
+
+	// when the number of ref to a page reach 0,
+	// add the page to the freelist and call the destructor
+	if pgHdr.nRef == 0 {
+		pager := pgHdr.pager
+		pgHdr.nextFree = nil
+		pgHdr.prevFree = pager.last
+		pager.last = pgHdr
+
+		if pgHdr.prevFree != nil {
+			pgHdr.prevFree.nextFree = pgHdr
+		} else {
+			pager.first = pgHdr
+		}
+
+		if pager.destructorFn != nil {
+			pager.destructorFn(pageData)
+		}
+
+		pager.nRef--
+		if pager.nRef == 0 {
+			resetPager(p)
+		}
+	}
+}
+
+func resetPager(p *Pager) {
+	p.first = nil
+	p.last = nil
+	p.all = nil
+	p.pageHash = nil
+	p.nPage = 0
+	if p.state >= SQLITE_WRITELOCK {
+		//todo: rollbackPager
+	}
+	p.dbfd.UnLock()
+	p.state = SQLITE_UNLOCK
+	p.dbSize = -1
+	p.nRef = 0
 }
 
 func errCode(p *Pager) codes.SQLiteCode {
@@ -201,7 +273,7 @@ func errCode(p *Pager) codes.SQLiteCode {
 	return codes.SQLiteOk
 }
 
-func (p *Pager) LookUp(pgNum uint) *PgHdr {
+func lookUpPage(p *Pager, pgNum uint) *PgHdr {
 	pgHdr := p.pageHash[pgNum%N_PG_HASH]
 	for pgHdr != nil && pgHdr.pgNum != pgNum {
 		pgHdr = pgHdr.nextHash
